@@ -7,6 +7,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import torch
 import torch.nn as nn
 import bitsandbytes as bnb
+import gc
 from transformers import AutoTokenizer, AutoConfig, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model
 from config import Config
@@ -36,7 +37,7 @@ class CastOutputToFloat(nn.Sequential):
         return super().forward(x).to(torch.float32)
     
 tokenizer = AutoTokenizer.from_pretrained(model_save_path)
-
+training_from = "resume"
 if __name__ == "__main__":
     model = AutoModelForCausalLM.from_pretrained(
                                                 model_save_path,
@@ -88,18 +89,23 @@ if __name__ == "__main__":
     start_iter = 0
     best_loss = float('inf')
 
-    if os.path.exists(ckpt_path):
+    if os.path.exists(ckpt_path) and training_from == "resume":
         print(f"Đang tải checkpoint từ {ckpt_path}...")
         checkpoint = torch.load(ckpt_path, map_location=device,weights_only = False)
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         start_iter = checkpoint["iter_num"]
         best_loss = checkpoint["best_val_loss"]
-        
+        del checkpoint
+        gc.collect()
+        torch.cuda.empty_cache()
         print(f"Đã khôi phục thành công! Sẵn sàng train tiếp từ step {start_iter}")
     else:
         print("Không có checkpoint cũ, bắt đầu train mới từ đầu!")
-
+    print(
+    f"allocated: {torch.cuda.memory_allocated()/1024**3:.2f} GB | "
+    f"reserved: {torch.cuda.memory_reserved()/1024**3:.2f} GB"
+    )
     trainer(
         model=model, 
         optimizer=optimizer, 
