@@ -11,7 +11,7 @@ import math
 import pickle
 from training_config import Training_Config
 from peft import get_peft_model_state_dict
-
+import gc
 # SETTINGS --------------------------------------------------------------------------------------------
 dtype = Training_Config.dtype
 ptdtype = Training_Config.ptdtype
@@ -32,7 +32,29 @@ eval_only = Training_Config.eval_only
 always_save_checkpoint = Training_Config.always_save_checkpoint
 scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
 # ----------------------------------------------------------------------------------------------------
+import subprocess
 
+def gpu_usage():
+    try:
+        result = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.used,memory.free,memory.total,utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+        ).strip()
+
+        used, free, total, util = result.split(", ")
+
+        print(
+            f"[GPU] VRAM {float(used)/1024:.2f}/"
+            f"{float(total)/1024:.2f} GB | "
+            f"Free {float(free)/1024:.2f} GB | "
+            f"Util {util}%"
+        )
+    except Exception as e:
+        print(f"nvidia-smi error: {e}")
 @torch.no_grad()
 def estimate_loss(model, config):
     out = {}
@@ -42,6 +64,7 @@ def estimate_loss(model, config):
         for k in range(config.eval_iters):
             X, Y = get_batch(split)
             with ctx:
+                
                 outputs = model(
                     input_ids=X,
                     labels=Y,
@@ -49,11 +72,12 @@ def estimate_loss(model, config):
                     position_ids=None,
                     past_key_values=None,
                 )
-                loss = outputs.loss
-                logits = outputs.logits
-            losses[k] = loss.item()
+            losses[k] = outputs.loss.item()
+            del outputs
         out[split] = losses.mean()
+        del losses
     model.train()
+    
     return out
 
 def get_lr(it):
@@ -74,7 +98,7 @@ def trainer(model, optimizer: torch.optim.Optimizer, config,iter_num=0,best_val_
             lr = get_lr(iter_num) if decay_lr else learning_rate
             for param_group in optimizer.param_groups:
                 param_group["lr"] = lr
-
+            
             if iter_num % eval_interval == 0 and eval_only == False:
                 losses = estimate_loss(model, config)
 
@@ -89,7 +113,7 @@ def trainer(model, optimizer: torch.optim.Optimizer, config,iter_num=0,best_val_
 
                     if iter_num > 0:
                         checkpoint = {
-                            "model": model.state_dict(),
+                            "model": get_peft_model_state_dict(model),
                             "optimizer": optimizer.state_dict(),
                             "iter_num": iter_num,
                             "best_val_loss": best_val_loss,
@@ -99,12 +123,15 @@ def trainer(model, optimizer: torch.optim.Optimizer, config,iter_num=0,best_val_
                         print(f"saving checkpoint to {Training_Config.checkpoint_dir}")
                         os.makedirs(Training_Config.checkpoint_dir, exist_ok=True)
                         torch.save(checkpoint, os.path.join(Training_Config.checkpoint_dir, "ckpt.pt"))
-
+                        del checkpoint
+                        gc.collect()
+                        torch.cuda.empty_cache()
+            
             if iter_num == 0 and eval_only:
                 losses = estimate_loss(model, config)
                 print(f"eval_only mode -> train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
                 break
-
+            
             optimizer.zero_grad(set_to_none=True)
             
             for micro_step in range(Training_Config.gradient_accumulation_steps):
@@ -117,21 +144,22 @@ def trainer(model, optimizer: torch.optim.Optimizer, config,iter_num=0,best_val_
                         past_key_values=None,
                     )
                     loss = outputs.loss
-                    logits = outputs.logits
                     loss = loss / Training_Config.gradient_accumulation_steps
 
+                scaler.scale(loss).backward()
+                del outputs
                 X, Y = get_batch("train")
 
-                scaler.scale(loss).backward()
 
+            
             if grad_clip != 0.0:
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-
             # Cập nhật trọng số Optimizer
             scaler.step(optimizer)
             scaler.update()
 
+            
             # 4. Logging
             if iter_num % Training_Config.log_interval == 0:
                 lossf = loss.item() * Training_Config.gradient_accumulation_steps
@@ -155,6 +183,8 @@ def trainer(model, optimizer: torch.optim.Optimizer, config,iter_num=0,best_val_
         
         os.makedirs(Training_Config.checkpoint_dir, exist_ok=True)
         torch.save(checkpoint, os.path.join(Training_Config.checkpoint_dir, "ckpt.pt"))
-        
+        del checkpoint
+        gc.collect()
+        torch.cuda.empty_cache()
         print(f"Đã lưu checkpoint")
         print("="*60 + "\n")

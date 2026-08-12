@@ -3,7 +3,7 @@ from peft import LoraConfig
 
 @dataclass
 class Config:
-    model_id = "llama-3.1-8b-8bit"
+    model_id = "llama-3.1-8b"
     dataset = "Abirate/english_quotes"
     lora_config = LoraConfig(
                         r = 32,
@@ -12,3 +12,4 @@ class Config:
                         bias = "none",
                         task_type = "CAUSAL_LM"
                         )
+    

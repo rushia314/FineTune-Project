@@ -6,7 +6,7 @@ import os
 project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 data_dir = os.path.join(project_dir,"data")
 block_size = 256
-batch_size = 2
+batch_size = 4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def get_batch(split):

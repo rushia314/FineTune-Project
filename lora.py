@@ -4,17 +4,21 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import torch
 import torch.nn as nn
 import bitsandbytes as bnb
 import gc
 from transformers import AutoTokenizer, AutoConfig, AutoModelForCausalLM, BitsAndBytesConfig
-from peft import LoraConfig, get_peft_model,set_peft_model_state_dict
+from peft import LoraConfig, get_peft_model,set_peft_model_state_dict,prepare_model_for_kbit_training
 from config import Config
 from tqdm import tqdm
 from Scripts.train import trainer, estimate_loss, get_lr
 from Scripts.training_config import Training_Config
 import logging
+from collections import Counter
+import subprocess
+from Scripts.data_prepare import get_batch
 logging.getLogger("bitsandbytes").setLevel(logging.ERROR)
 logging.getLogger("transformers").setLevel(logging.ERROR)
 project_path = os.path.dirname(os.path.abspath(__file__))
@@ -23,6 +27,43 @@ lora_config = Config.lora_config
 model_using = Config.model_id
 model_save_path = rf"{project_path}\{model_using}"
 profiles_path = rf"{project_path}\user_profile"
+quantization_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.bfloat16,  
+    bnb_4bit_quant_type="nf4",        
+    bnb_4bit_use_double_quant=True,      
+)
+#For debugging
+def mem(tag):
+    print(
+        f"{tag}: "
+        f"allocated={torch.cuda.memory_allocated()/1024**3:.2f} GB | "
+        f"reserved={torch.cuda.memory_reserved()/1024**3:.2f} GB"
+    )
+def gpu_mem(tag):
+    torch.cuda.synchronize()
+    print(
+        f"{tag}: "
+        f"allocated={torch.cuda.memory_allocated()/1024**3:.2f} GB, "
+        f"reserved={torch.cuda.memory_reserved()/1024**3:.2f} GB"
+    )
+def print_gpu_memory(tag):
+    result = subprocess.check_output(
+        [
+            "nvidia-smi",
+            "--query-gpu=memory.used,memory.free,memory.total",
+            "--format=csv,noheader,nounits",
+        ],
+        text=True,
+    ).strip()
+    used, free, total = map(int, result.split(", "))
+
+    print(
+        f"[{tag}] "
+        f"VRAM {used/1024:.2f}/{total/1024:.2f} GB "
+        f"| free {free/1024:.2f} GB"
+    )
+#------------------------------------------------------------------------------------------
 def print_trainable_parameters(model):
     trainable_params = 0
     all_params = 0
@@ -42,19 +83,18 @@ if __name__ == "__main__":
     model = AutoModelForCausalLM.from_pretrained(
                                                 model_save_path,
                                                 device_map="auto",
-                                                dtype = torch.float16,
+                                                quantization_config=quantization_config,
                                                 )
-
-    print("Freezing parameters: ")
-    for param in tqdm(model.parameters()):
-        param.requires_grad = False
-        if param.ndim == 1:
-            param.data = param.data.to(torch.float32)
+    mem("AFTER MODEL LOAD")
+    model = prepare_model_for_kbit_training(model)
 
     model.gradient_checkpointing_enable()
     model.enable_input_require_grads()
+    model.config.use_cache = False
     model.lm_head = CastOutputToFloat(model.lm_head)
     model = get_peft_model(model,lora_config)
+
+    mem("AFTER PEFT")
     print("Model Sẵn sàng!\n")
     print_trainable_parameters(model)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -75,37 +115,58 @@ if __name__ == "__main__":
         {'params': decay_params, 'weight_decay': 0.01},
         {'params': nodecay_params, 'weight_decay': 0.0}
     ]
-    optimizer = torch.optim.AdamW(
-        optim_groups, 
-        lr=Training_Config.learning_rate, 
-        betas=(0.9, 0.95),
-        eps=1e-8
-    )
-    if not os.path.exists(Training_Config.checkpoint_dir):
-        ckpt_path = os.path.join(Training_Config.checkpoint_dir, "ckpt.pt")
+    optimizer = bnb.optim.AdamW8bit(
+                                    optim_groups, 
+                                    lr=Training_Config.learning_rate, 
+                                    betas=(0.9, 0.95),
+                                    eps=1e-8
+                                    )
 
-    
     ckpt_path = os.path.join(Training_Config.checkpoint_dir, "ckpt.pt")
     start_iter = 0
     best_loss = float('inf')
 
     if os.path.exists(ckpt_path) and training_from == "resume":
         print(f"Đang tải checkpoint từ {ckpt_path}...")
-        checkpoint = torch.load(ckpt_path, map_location=device,weights_only = False)
-        set_peft_model_state_dict(model, checkpoint['model'])
+        
+        checkpoint = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+        state_dict = checkpoint['model']
+        set_peft_model_state_dict(model, state_dict)
         optimizer.load_state_dict(checkpoint["optimizer"])
         start_iter = checkpoint["iter_num"]
         best_loss = checkpoint["best_val_loss"]
+        
         del checkpoint
         gc.collect()
         torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
         print(f"Đã khôi phục thành công! Sẵn sàng train tiếp từ step {start_iter}")
     else:
         print("Không có checkpoint cũ, bắt đầu train mới từ đầu!")
-    print(
-    f"allocated: {torch.cuda.memory_allocated()/1024**3:.2f} GB | "
-    f"reserved: {torch.cuda.memory_reserved()/1024**3:.2f} GB"
-    )
+
+    #Has to warmup a forward first so everything is set up before the huge workload
+    #Spent fricking 4 hours to figure this out
+    print("WARMUP...")
+    model.eval()
+
+    X, Y = get_batch("train")
+
+    with torch.no_grad():
+        outputs = model(
+            input_ids=X,
+            labels=Y,
+            attention_mask=None,
+            position_ids=None,
+            past_key_values=None,
+        )
+
+    del outputs, X, Y
+
+    model.train()
+
+    torch.cuda.synchronize()
+
+    print("WARMUP DONE")
     trainer(
         model=model, 
         optimizer=optimizer, 
