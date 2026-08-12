@@ -9,7 +9,7 @@ import torch.nn as nn
 import bitsandbytes as bnb
 import gc
 from transformers import AutoTokenizer, AutoConfig, AutoModelForCausalLM, BitsAndBytesConfig
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model,set_peft_model_state_dict
 from config import Config
 from tqdm import tqdm
 from Scripts.train import trainer, estimate_loss, get_lr
@@ -92,7 +92,7 @@ if __name__ == "__main__":
     if os.path.exists(ckpt_path) and training_from == "resume":
         print(f"Đang tải checkpoint từ {ckpt_path}...")
         checkpoint = torch.load(ckpt_path, map_location=device,weights_only = False)
-        model.load_state_dict(checkpoint["model"])
+        set_peft_model_state_dict(model, checkpoint['model'])
         optimizer.load_state_dict(checkpoint["optimizer"])
         start_iter = checkpoint["iter_num"]
         best_loss = checkpoint["best_val_loss"]

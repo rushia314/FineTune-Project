@@ -10,6 +10,7 @@ import numpy as np
 import math
 import pickle
 from training_config import Training_Config
+from peft import get_peft_model_state_dict
 
 # SETTINGS --------------------------------------------------------------------------------------------
 dtype = Training_Config.dtype
@@ -145,7 +146,7 @@ def trainer(model, optimizer: torch.optim.Optimizer, config,iter_num=0,best_val_
     except KeyboardInterrupt:
         print("\n" + "="*60)
         checkpoint = {
-            "model": model.state_dict(),
+            "model": get_peft_model_state_dict(model),
             "optimizer": optimizer.state_dict(),
             "iter_num": iter_num,
             "best_val_loss": best_val_loss,
