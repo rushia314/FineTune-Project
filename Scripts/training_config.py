@@ -1,5 +1,4 @@
 import torch
-from data_prepare import get_batch
 from contextlib import nullcontext
 import numpy as np
 import math
@@ -18,6 +17,8 @@ class Training_Config:
     eval_iters = 10
     eval_only = False
     checkpoint_dir = "E:/LlamaFineTune/Checkpoint"
-    gradient_accumulation_steps=1
+    gradient_accumulation_steps=32
+    batch_size = 8
+    block_size = 256
     log_interval = 1
     always_save_checkpoint = False

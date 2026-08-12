@@ -33,37 +33,7 @@ quantization_config = BitsAndBytesConfig(
     bnb_4bit_quant_type="nf4",        
     bnb_4bit_use_double_quant=True,      
 )
-#For debugging
-def mem(tag):
-    print(
-        f"{tag}: "
-        f"allocated={torch.cuda.memory_allocated()/1024**3:.2f} GB | "
-        f"reserved={torch.cuda.memory_reserved()/1024**3:.2f} GB"
-    )
-def gpu_mem(tag):
-    torch.cuda.synchronize()
-    print(
-        f"{tag}: "
-        f"allocated={torch.cuda.memory_allocated()/1024**3:.2f} GB, "
-        f"reserved={torch.cuda.memory_reserved()/1024**3:.2f} GB"
-    )
-def print_gpu_memory(tag):
-    result = subprocess.check_output(
-        [
-            "nvidia-smi",
-            "--query-gpu=memory.used,memory.free,memory.total",
-            "--format=csv,noheader,nounits",
-        ],
-        text=True,
-    ).strip()
-    used, free, total = map(int, result.split(", "))
 
-    print(
-        f"[{tag}] "
-        f"VRAM {used/1024:.2f}/{total/1024:.2f} GB "
-        f"| free {free/1024:.2f} GB"
-    )
-#------------------------------------------------------------------------------------------
 def print_trainable_parameters(model):
     trainable_params = 0
     all_params = 0
@@ -85,7 +55,6 @@ if __name__ == "__main__":
                                                 device_map="auto",
                                                 quantization_config=quantization_config,
                                                 )
-    mem("AFTER MODEL LOAD")
     model = prepare_model_for_kbit_training(model)
 
     model.gradient_checkpointing_enable()
@@ -94,7 +63,6 @@ if __name__ == "__main__":
     model.lm_head = CastOutputToFloat(model.lm_head)
     model = get_peft_model(model,lora_config)
 
-    mem("AFTER PEFT")
     print("Model Sẵn sàng!\n")
     print_trainable_parameters(model)
     device = "cuda" if torch.cuda.is_available() else "cpu"

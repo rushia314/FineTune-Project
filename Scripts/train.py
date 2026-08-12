@@ -32,29 +32,7 @@ eval_only = Training_Config.eval_only
 always_save_checkpoint = Training_Config.always_save_checkpoint
 scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
 # ----------------------------------------------------------------------------------------------------
-import subprocess
 
-def gpu_usage():
-    try:
-        result = subprocess.check_output(
-            [
-                "nvidia-smi",
-                "--query-gpu=memory.used,memory.free,memory.total,utilization.gpu",
-                "--format=csv,noheader,nounits",
-            ],
-            text=True,
-        ).strip()
-
-        used, free, total, util = result.split(", ")
-
-        print(
-            f"[GPU] VRAM {float(used)/1024:.2f}/"
-            f"{float(total)/1024:.2f} GB | "
-            f"Free {float(free)/1024:.2f} GB | "
-            f"Util {util}%"
-        )
-    except Exception as e:
-        print(f"nvidia-smi error: {e}")
 @torch.no_grad()
 def estimate_loss(model, config):
     out = {}
