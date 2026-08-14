@@ -28,16 +28,16 @@ model = AutoModelForCausalLM.from_pretrained(
     dtype = torch.float16,
 )
 
+
+tokenizer = AutoTokenizer.from_pretrained(model_save_path)
+model.config.use_cache = True
+print("Sẵn sàng!\n")
 model = get_peft_model(model,Config.lora_config)
 if os.path.exists("Checkpoint/ckpt.pt"):
     checkpoint = torch.load("Checkpoint/ckpt.pt", map_location='cpu', weights_only=False)
 
     set_peft_model_state_dict(model,checkpoint['model'])
     del checkpoint
-tokenizer = AutoTokenizer.from_pretrained(model_save_path)
-model.config.use_cache = True
-print("Sẵn sàng!\n")
-
 profile_name = input("nhập tên profile muốn dùng: \n")
 profile_path = os.path.join(profiles_path,profile_name)
 HISTORY_FILE = rf"{profile_path}\chat_history.json"
