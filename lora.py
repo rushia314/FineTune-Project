@@ -127,7 +127,7 @@ if __name__ == "__main__":
             position_ids=None,
             past_key_values=None,
         )
-
+        print(estimate_loss(model,Training_Config))
     del outputs, X, Y
 
     model.train()

@@ -14,17 +14,16 @@ batch_size = Training_Config.batch_size
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def get_batch(split):
-    # Chọn file dựa trên split
-    bin_file = 'train.bin' if split == 'train' else 'val.bin'
-    file_path = os.path.join(data_dir, bin_file)
-    
-    data = np.memmap(file_path, dtype=np.int32, mode='r', offset=12)
-    
-    ix = torch.randint(len(data) - block_size, (batch_size,))
+    batches_dir = os.path.join(data_dir,"train") if split == 'train' else os.path.join(data_dir,"val")
+    ids_path = os.path.join(batches_dir, "ids.bin")
+    labels_path = os.path.join(batches_dir, "labels.bin")
+    ids_data = np.memmap(ids_path, dtype=np.int32, mode='r', offset=12)
+    labels_data = np.memmap(labels_path, dtype=np.int32, mode='r', offset=12)
+    ix = torch.randint(len(ids_data) - block_size, (batch_size,))
 
-    x = torch.stack([torch.from_numpy((data[i : i + block_size]).astype(np.int64)) for i in ix])
+    x = torch.stack([torch.from_numpy((ids_data[i : i + block_size]).astype(np.int64)) for i in ix])
     
-    y = torch.stack([torch.from_numpy((data[i + 1 : i + 1 + block_size]).astype(np.int64)) for i in ix])
+    y = torch.stack([torch.from_numpy((labels_data[i : i + block_size]).astype(np.int64)) for i in ix])
     
     x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
     

@@ -5,9 +5,16 @@ import torch
 import torch.nn as nn
 import bitsandbytes as bnb
 from transformers import AutoTokenizer, AutoConfig, AutoModelForCausalLM, BitsAndBytesConfig
+from config import Config
+from peft import LoraConfig, get_peft_model,set_peft_model_state_dict
 
 project_path = os.path.dirname(os.path.abspath(__file__))
-
+quantization_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_use_double_quant=True,
+)
 model_save_path = rf"{project_path}\llama-3.1-8b"
 profiles_path = rf"{project_path}\user_profile"
 if not os.path.exists(profiles_path):
@@ -17,11 +24,19 @@ print("Đang nạp mô hình vào VRAM...")
 model = AutoModelForCausalLM.from_pretrained(
     model_save_path,
     device_map="auto",
+    quantization_config = quantization_config,
     dtype = torch.float16,
 )
-tokenizer = AutoTokenizer.from_pretrained(model_save_path)
-print("Sẵn sàng!\n")
 
+model = get_peft_model(model,Config.lora_config)
+if os.path.exists("Checkpoint/ckpt.pt"):
+    checkpoint = torch.load("Checkpoint/ckpt.pt", map_location='cpu', weights_only=False)
+
+    set_peft_model_state_dict(model,checkpoint['model'])
+    del checkpoint
+tokenizer = AutoTokenizer.from_pretrained(model_save_path)
+model.config.use_cache = True
+print("Sẵn sàng!\n")
 
 profile_name = input("nhập tên profile muốn dùng: \n")
 profile_path = os.path.join(profiles_path,profile_name)
@@ -69,7 +84,9 @@ while True:
     ai_response = tokenizer.decode(response_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False)
     
     print(ai_response)
-    
+
     chat_history.append({"role": "assistant", "content": ai_response})
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(chat_history, f, ensure_ascii=False, indent=4)
+
+        

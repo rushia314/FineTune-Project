@@ -150,19 +150,27 @@ def trainer(model, optimizer: torch.optim.Optimizer, config,iter_num=0,best_val_
                 print("Đã đạt số lượng max_iters, kết thúc training!")
                 break
     except KeyboardInterrupt:
-        print("\n" + "="*60)
-        checkpoint = {
-            "model": get_peft_model_state_dict(model),
-            "optimizer": optimizer.state_dict(),
-            "iter_num": iter_num,
-            "best_val_loss": best_val_loss,
-            "config": config,
-        }
+        losses = estimate_loss(model, config)
         
-        os.makedirs(Training_Config.checkpoint_dir, exist_ok=True)
-        torch.save(checkpoint, os.path.join(Training_Config.checkpoint_dir, "ckpt.pt"))
-        del checkpoint
-        gc.collect()
-        torch.cuda.empty_cache()
-        print(f"Đã lưu checkpoint")
-        print("="*60 + "\n")
+        print(
+            f"step {iter_num}: "
+            f"train loss {losses['train']:.4f}, "
+            f"val loss {losses['val']:.4f}"
+        )
+        if losses["val"] < best_val_loss:
+            print("\n" + "="*60)
+            checkpoint = {
+                "model": get_peft_model_state_dict(model),
+                "optimizer": optimizer.state_dict(),
+                "iter_num": iter_num,
+                "best_val_loss": best_val_loss,
+                "config": config,
+            }
+            
+            os.makedirs(Training_Config.checkpoint_dir, exist_ok=True)
+            torch.save(checkpoint, os.path.join(Training_Config.checkpoint_dir, "ckpt.pt"))
+            del checkpoint
+            gc.collect()
+            torch.cuda.empty_cache()
+            print(f"Đã lưu checkpoint")
+            print("="*60 + "\n")

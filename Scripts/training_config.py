@@ -12,7 +12,7 @@ class Training_Config:
     decay_lr = True
     warmup_iters = 0
     lr_decay_iters = max_iters
-    learning_rate = 6e-4
+    learning_rate = 6e-5
     eval_interval = 100
     eval_iters = 10
     eval_only = False
