@@ -69,6 +69,7 @@ def get_lr(it):
     return min_lr + coeff * (learning_rate - min_lr)
 
 def trainer(model, optimizer: torch.optim.Optimizer, config,iter_num=0,best_val_loss = float('inf')):
+    cur_adapter = model.active_adapter
     local_iter_num = 0
     X, Y = get_batch("train")
     try:
@@ -85,25 +86,25 @@ def trainer(model, optimizer: torch.optim.Optimizer, config,iter_num=0,best_val_
                     f"train loss {losses['train']:.4f}, "
                     f"val loss {losses['val']:.4f}"
                 )
-
-                if losses["val"] < best_val_loss or always_save_checkpoint:
-                    best_val_loss = losses["val"]
-
-                    if iter_num > 0:
-                        checkpoint = {
+                checkpoint = {
                             "model": get_peft_model_state_dict(model),
                             "optimizer": optimizer.state_dict(),
                             "iter_num": iter_num,
                             "best_val_loss": best_val_loss,
                             "config": config,
-                        }
+                            }
+                if not os.path.exists(os.path.join(Training_Config.checkpoint_dir,cur_adapter)):
+                    os.makedirs(os.path.join(Training_Config.checkpoint_dir,cur_adapter))
+                torch.save(checkpoint, os.path.join(Training_Config.checkpoint_dir,cur_adapter, "best_ckpt.pt"))
+                if losses["val"] < best_val_loss or always_save_checkpoint:
+                    best_val_loss = losses["val"]
 
-                        print(f"saving checkpoint to {Training_Config.checkpoint_dir}")
-                        os.makedirs(Training_Config.checkpoint_dir, exist_ok=True)
-                        torch.save(checkpoint, os.path.join(Training_Config.checkpoint_dir, "ckpt.pt"))
-                        del checkpoint
-                        gc.collect()
-                        torch.cuda.empty_cache()
+                    if iter_num > 0:
+                        print(f"saving checkpoint to {os.path.join(Training_Config.checkpoint_dir,cur_adapter)}")
+                        torch.save(checkpoint, os.path.join(Training_Config.checkpoint_dir,cur_adapter, "latest_ckpt.pt"))
+                del checkpoint
+                gc.collect()
+                torch.cuda.empty_cache()
             
             if iter_num == 0 and eval_only:
                 losses = estimate_loss(model, config)
@@ -157,20 +158,22 @@ def trainer(model, optimizer: torch.optim.Optimizer, config,iter_num=0,best_val_
             f"train loss {losses['train']:.4f}, "
             f"val loss {losses['val']:.4f}"
         )
-        if losses["val"] < best_val_loss:
-            print("\n" + "="*60)
-            checkpoint = {
-                "model": get_peft_model_state_dict(model),
-                "optimizer": optimizer.state_dict(),
-                "iter_num": iter_num,
-                "best_val_loss": best_val_loss,
-                "config": config,
-            }
-            
-            os.makedirs(Training_Config.checkpoint_dir, exist_ok=True)
-            torch.save(checkpoint, os.path.join(Training_Config.checkpoint_dir, "ckpt.pt"))
-            del checkpoint
-            gc.collect()
-            torch.cuda.empty_cache()
-            print(f"Đã lưu checkpoint")
-            print("="*60 + "\n")
+        
+        print("\n" + "="*60)
+        checkpoint = {
+            "model": get_peft_model_state_dict(model),
+            "optimizer": optimizer.state_dict(),
+            "iter_num": iter_num,
+            "best_val_loss": best_val_loss,
+            "config": config,
+        }
+        
+        print(f"saving checkpoint to {os.path.join(Training_Config.checkpoint_dir,cur_adapter)}")
+        if not os.path.exists(os.path.join(Training_Config.checkpoint_dir,cur_adapter)):
+            os.makedirs(os.path.join(Training_Config.checkpoint_dir,cur_adapter))
+        torch.save(checkpoint, os.path.join(Training_Config.checkpoint_dir,cur_adapter, "latest_ckpt.pt"))
+        del checkpoint
+        gc.collect()
+        torch.cuda.empty_cache()
+        print(f"Đã lưu checkpoint")
+        print("="*60 + "\n")

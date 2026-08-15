@@ -27,13 +27,9 @@ lora_config = Config.lora_config
 model_using = Config.model_id
 model_save_path = rf"{project_path}\{model_using}"
 profiles_path = rf"{project_path}\user_profile"
-quantization_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_compute_dtype=torch.bfloat16,  
-    bnb_4bit_quant_type="nf4",        
-    bnb_4bit_use_double_quant=True,      
-)
-
+cur_adapter = "author_guess"
+from_checkpoint = "author_guess"  #latest or best
+quantization_config = Config.quantization_config
 def print_trainable_parameters(model):
     trainable_params = 0
     all_params = 0
@@ -61,7 +57,7 @@ if __name__ == "__main__":
     model.enable_input_require_grads()
     model.config.use_cache = False
     model.lm_head = CastOutputToFloat(model.lm_head)
-    model = get_peft_model(model,lora_config)
+    model = get_peft_model(model,lora_config,adapter_name = cur_adapter)
 
     print("Model Sẵn sàng!\n")
     print_trainable_parameters(model)
@@ -89,8 +85,7 @@ if __name__ == "__main__":
                                     betas=(0.9, 0.95),
                                     eps=1e-8
                                     )
-
-    ckpt_path = os.path.join(Training_Config.checkpoint_dir, "ckpt.pt")
+    ckpt_path = os.path.join(Training_Config.checkpoint_dir,cur_adapter, f"{from_checkpoint}_ckpt.pt")
     start_iter = 0
     best_loss = float('inf')
 

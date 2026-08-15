@@ -12,8 +12,8 @@ class Training_Config:
     decay_lr = True
     warmup_iters = 0
     lr_decay_iters = max_iters
-    learning_rate = 6e-5
-    eval_interval = 100
+    learning_rate = 6e-6
+    eval_interval = 20
     eval_iters = 10
     eval_only = False
     checkpoint_dir = "E:/LlamaFineTune/Checkpoint"
